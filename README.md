@@ -17,7 +17,7 @@ A secure, minimal SDK for sending encrypted communication requests (e.g., email 
 ## 📦 Installation
 
 ```bash
-go get github.com/Catalizo/catzconnect-go
+go get github.com/Catalizo/catzconnect-go-sdk
 ```
 
 ---
@@ -46,7 +46,7 @@ package main
 import (
 	"log"
 
-	catzconnect "github.com/Catalizo/catzconnect-go"
+	catzconnect "github.com/Catalizo/catzconnect-go-sdk"
 )
 
 func main() {
