@@ -189,3 +189,68 @@ go test ./...
 ```
 
 ---
+
+## WhatsApp
+
+```go
+catzconnect.Send(catzconnect.SendInput{
+	Type:     catzconnect.MessageTypeVerification,
+	Channel:  catzconnect.ChannelWhatsApp,
+	Template: catzconnect.TemplateOtp,
+	Identity: "919578456444", // your connected WhatsApp number
+	Payload: catzconnect.SendPayload{
+		To:  "+91 98765 43210", // phone number with country code
+		Otp: "123456",
+	},
+}, nil)
+```
+
+`Transactional` / `Custom` takes `To`, `Body`, and an optional `Subject` sent as a
+bold first line. OTPs need an approved Authentication template; custom messages
+only reach people who messaged your number in the last 24 hours.
+
+## Push notifications (end-to-end encrypted)
+
+```go
+catzconnect.Send(catzconnect.SendInput{
+	Type:     catzconnect.MessageTypeNotification,
+	Channel:  catzconnect.ChannelPush,
+	Template: catzconnect.TemplateNotification,
+	Identity: "your-firebase-project-id",
+	Payload: catzconnect.SendPayload{
+		To:        fcmToken,
+		DeviceKey: devicePublicKey, // from the app; seals the content to that device
+		Title:     "Order shipped",
+		Body:      "Arriving Friday",
+		Data:      map[string]string{"order": "42"},
+	},
+}, nil)
+```
+
+The device generates its keys and decrypts — see `PUSH.md` for web, Android and iOS.
+
+## Errors
+
+Every error `Send` returns is a `*catzconnect.Error`. Branch on the kind with
+`errors.Is`, or read the server's response with `errors.As`:
+
+```go
+_, err := catzconnect.Send(input, nil)
+switch {
+case errors.Is(err, catzconnect.ErrValidation):
+	// the payload was refused before sending
+case errors.Is(err, catzconnect.ErrMissingEnv):
+	// a CATZCONNECT_* variable is unset
+case errors.Is(err, catzconnect.ErrAPI):
+	var ce *catzconnect.Error
+	errors.As(err, &ce)
+	log.Println(ce.Status, ce.Body) // what the server said
+}
+```
+
+## Keys and configuration
+
+Keys are read leniently: surrounding whitespace, a trailing newline, URL-safe
+base64 and missing padding are all accepted, as `.env` files and secret managers
+commonly introduce them. The API key and base URL are trimmed, and a trailing
+slash on `CATZCONNECT_BASE_URL` is removed. Requests time out after 30 seconds.

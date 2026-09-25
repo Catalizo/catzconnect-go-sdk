@@ -14,11 +14,15 @@ type Template string
 const (
 	MessageTypeVerification  MessageType = "Verification"
 	MessageTypeTransactional MessageType = "Transactional"
+	MessageTypeNotification  MessageType = "Notification"
 
-	ChannelEmail Channel = "Email"
+	ChannelEmail    Channel = "Email"
+	ChannelWhatsApp Channel = "WhatsApp"
+	ChannelPush     Channel = "Push"
 
-	TemplateOtp    Template = "Otp"
-	TemplateCustom Template = "Custom"
+	TemplateOtp          Template = "Otp"
+	TemplateCustom       Template = "Custom"
+	TemplateNotification Template = "Notification"
 )
 
 // SendInput is the input to Send.
@@ -37,6 +41,15 @@ type SendPayload struct {
 	Otp     string `json:"otp,omitempty"`
 	Subject string `json:"subject,omitempty"`
 	Body    string `json:"body,omitempty"`
+
+	// Push only.
+	Title string            `json:"title,omitempty"`
+	Data  map[string]string `json:"data,omitempty"`
+	Image string            `json:"image,omitempty"`
+	Link  string            `json:"link,omitempty"`
+	// DeviceKey is the device's X25519 public key, base64. When set, the
+	// notification is sealed so only that device can read it.
+	DeviceKey string `json:"device_key,omitempty"`
 }
 
 // EnvValues lets callers pass credentials explicitly instead of reading
