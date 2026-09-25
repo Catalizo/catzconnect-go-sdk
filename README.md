@@ -131,17 +131,12 @@ catzconnect.SendInput{
    * Ensures required fields are present
    * Validates email format
 
-2. **Encrypt Payload**
-
-   * Uses X25519 (ECDH) + ChaCha20-Poly1305
-   * Derived symmetric key via BLAKE2b
-
-3. **Send Request**
+2. **Send Request**
 
    * `POST /sdk/send`
    * Authorization via Bearer token
 
-4. **Server Processes Securely**
+3. **Server Processes Securely**
 
 ---
 
