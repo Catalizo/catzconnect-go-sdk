@@ -114,11 +114,24 @@ func verifyPayload(input SendInput) error {
 		if input.Identity == "" {
 			return errors.New("Missing 'identity' — the Firebase project ID")
 		}
-		if input.Payload.To == "" {
-			return errors.New("Missing 'to' in payload — the device's FCM registration token")
+		hasTo := input.Payload.To != ""
+		hasUser := input.Payload.ExternalUserID != ""
+		if hasTo && hasUser {
+			return errors.New("Give either 'to' (one device token) or 'external_user_id' (a user's registered devices), not both")
 		}
-		if strings.Contains(input.Payload.To, "@") {
+		if !hasTo && !hasUser {
+			return errors.New("Missing 'to' in payload — the device's FCM registration token — or 'external_user_id' for a user's registered devices")
+		}
+		if hasTo && strings.Contains(input.Payload.To, "@") {
 			return errors.New("'to' must be an FCM registration token, not an email address")
+		}
+		if hasUser {
+			if len([]rune(input.Payload.ExternalUserID)) > 128 {
+				return errors.New("'external_user_id' must be a string of up to 128 characters")
+			}
+			if input.Payload.DeviceKey != "" {
+				return errors.New("'device_key' cannot be used with 'external_user_id' — each registered device's own key is used")
+			}
 		}
 		if input.Payload.Body == "" {
 			return errors.New("Missing 'body' in payload")
@@ -127,6 +140,21 @@ func verifyPayload(input SendInput) error {
 			if v != "" && !strings.HasPrefix(v, "https://") {
 				return fmt.Errorf("'%s' must be an https:// URL", name)
 			}
+		}
+		return nil
+	}
+
+	// Email · a template created in the panel, sent by name. The server
+	// fills its {{variables}} from Payload.Data.
+	if input.Channel == ChannelEmail && input.Template != "" && !isBuiltinTemplate(input.Template) {
+		if input.Identity == "" {
+			return errors.New("Missing 'identity'")
+		}
+		if input.Payload.To == "" {
+			return errors.New("Missing 'to' in payload")
+		}
+		if err := validateEmail(input.Payload.To); err != nil {
+			return err
 		}
 		return nil
 	}

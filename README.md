@@ -131,12 +131,17 @@ catzconnect.SendInput{
    * Ensures required fields are present
    * Validates email format
 
-2. **Send Request**
+2. **Encrypt Payload**
+
+   * Uses X25519 (ECDH) + ChaCha20-Poly1305
+   * Derived symmetric key via BLAKE2b
+
+3. **Send Request**
 
    * `POST /sdk/send`
    * Authorization via Bearer token
 
-3. **Server Processes Securely**
+4. **Server Processes Securely**
 
 ---
 
@@ -249,3 +254,40 @@ Keys are read leniently: surrounding whitespace, a trailing newline, URL-safe
 base64 and missing padding are all accepted, as `.env` files and secret managers
 commonly introduce them. The API key and base URL are trimmed, and a trailing
 slash on `CATZCONNECT_BASE_URL` is removed. Requests time out after 30 seconds.
+
+## Email templates from the panel
+
+```go
+_, err := catzconnect.Send(catzconnect.SendInput{
+	Channel:  catzconnect.ChannelEmail,
+	Type:     catzconnect.MessageTypeTransactional,
+	Template: catzconnect.Template("Order shipped"), // the template's name in the panel
+	Identity: "noreply@yourdomain.com",
+	Payload: catzconnect.SendPayload{
+		To:   "user@example.com",
+		Data: map[string]string{"name": "Ann", "order_id": "A-1042"},
+	},
+}, nil)
+```
+
+## Push to a user's registered devices
+
+Set `ExternalUserID` instead of `To` to send to every device your app
+registered for that user with `POST /push/register`. `DeviceKey` must be
+empty; each device's registered key is used.
+
+```go
+Payload: catzconnect.SendPayload{ExternalUserID: "user-42", Title: "Order shipped", Body: "It's on the way"},
+```
+
+## Verifying webhooks
+
+```go
+body, _ := io.ReadAll(r.Body)
+if !catzconnect.VerifyWebhookSignature(body, r.Header.Get("Catz-Signature"), os.Getenv("CATZCONNECT_WEBHOOK_SECRET")) {
+	http.Error(w, "bad signature", http.StatusBadRequest)
+	return
+}
+```
+
+`VerifyWebhookSignatureAt` takes an explicit clock and tolerance.

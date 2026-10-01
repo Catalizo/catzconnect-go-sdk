@@ -86,6 +86,16 @@ func buildPayload(in SendInput) (map[string]any, error) {
 		optional("image", in.Payload.Image)
 		optional("link", in.Payload.Link)
 		optional("device_key", in.Payload.DeviceKey)
+		optional("external_user_id", in.Payload.ExternalUserID)
+		if in.Payload.To == "" {
+			delete(p, "to")
+		}
+		if len(in.Payload.Data) > 0 {
+			p["data"] = in.Payload.Data
+		}
+
+	case in.Channel == ChannelEmail && !isBuiltinTemplate(in.Template):
+		// A panel template by name; its variables travel in data.
 		if len(in.Payload.Data) > 0 {
 			p["data"] = in.Payload.Data
 		}

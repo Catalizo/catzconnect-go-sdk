@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const userAgent = "catzconnect-go-sdk/1.1.0"
+const userAgent = "catzconnect-go-sdk/1.2.0"
 
 // httpClient posts encrypted payloads to the API.
 type httpClient struct {
