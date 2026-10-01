@@ -38,7 +38,7 @@ You can also pass them explicitly via `*EnvValues` instead of the environment (s
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ```go
 package main
