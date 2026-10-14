@@ -1,5 +1,5 @@
 // Package catzconnect is a secure, minimal SDK for sending encrypted
-// communication requests — email, WhatsApp and push — to the CatzConnect API.
+// communication requests — email, WhatsApp, push and SMS — to the CatzConnect API.
 //
 // It is structured like the Rust SDK: validate, build the payload for the
 // channel, encrypt (X25519 + BLAKE2b + ChaCha20-Poly1305), and send with a
@@ -64,6 +64,10 @@ func buildPayload(in SendInput) (map[string]any, error) {
 		if value != "" {
 			p[key] = value
 		}
+	}
+
+	if in.Channel == ChannelSMS {
+		return buildSMSPayload(in), nil
 	}
 
 	switch {

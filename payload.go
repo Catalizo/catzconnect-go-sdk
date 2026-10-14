@@ -144,6 +144,11 @@ func verifyPayload(input SendInput) error {
 		return nil
 	}
 
+	// SMS · Otp, Custom, or an SMS template from the panel.
+	if input.Channel == ChannelSMS {
+		return verifySMS(input)
+	}
+
 	// Email · a template created in the panel, sent by name. The server
 	// fills its {{variables}} from Payload.Data.
 	if input.Channel == ChannelEmail && input.Template != "" && !isBuiltinTemplate(input.Template) {

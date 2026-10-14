@@ -38,7 +38,7 @@ You can also pass them explicitly via `*EnvValues` instead of the environment (s
 
 ---
 
-## Usage
+## 🚀 Usage
 
 ```go
 package main
@@ -291,3 +291,48 @@ if !catzconnect.VerifyWebhookSignature(body, r.Header.Get("Catz-Signature"), os.
 ```
 
 `VerifyWebhookSignatureAt` takes an explicit clock and tolerance.
+
+## SMS
+
+`To` is an E.164 number (`+` and the country code; spaces, dashes, dots and
+brackets are removed). `Identity` is ignored. `SendSMS` returns the typed result.
+
+```go
+// One-time code: Verification + Otp (up to 15 letters or digits).
+res, err := catzconnect.SendSMS(catzconnect.SendInput{
+	Type:     catzconnect.MessageTypeVerification,
+	Template: catzconnect.TemplateOtp,
+	Payload:  catzconnect.SendPayload{To: "+14155550100", Otp: "123456"},
+}, nil)
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(res.MessageID, res.Segments, res.Encoding) // "…", 1, "gsm7"
+
+// Free text: Transactional or Promotional + Custom. India needs a DLT id.
+_, err = catzconnect.SendSMS(catzconnect.SendInput{
+	Type:     catzconnect.MessageTypePromotional,
+	Template: catzconnect.TemplateCustom,
+	Payload: catzconnect.SendPayload{
+		To:            "+91 98765 43210",
+		Body:          "Sale ends tonight",
+		DLTTemplateID: "1207161234567890123",
+		Gateway:       "MSG91 India", // optional: one of the key's gateways (id or label)
+		Sender:        "CATZIN",      // optional: only with Gateway, when it allows overrides
+	},
+}, nil)
+
+// An SMS template from the panel, filled from Data.
+_, err = catzconnect.SendSMS(catzconnect.SendInput{
+	Type:     catzconnect.MessageTypeTransactional,
+	Template: catzconnect.Template("Order shipped"),
+	Payload:  catzconnect.SendPayload{To: "+14155550100", Data: map[string]string{"name": "Ann"}},
+}, nil)
+```
+
+`Send` with `Channel: catzconnect.ChannelSMS` works too; read its result with
+`ParseSMSResult`. Validation matches the server: E.164 `To`; `Otp` only with
+`Verification`, `Custom` only with `Transactional`/`Promotional`; `Sender` only
+with `Gateway`; numeric `DLTTemplateID`; Custom bodies at most 10 segments
+(1,530 GSM-7 / 670 UCS-2 characters) and a DLT id for +91. `AnalyzeSMS(text)`
+reports the encoding and segments; `NormalizeE164` normalises a number.
