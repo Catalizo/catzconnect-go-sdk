@@ -150,3 +150,80 @@ func marshalNoHTMLEscape(v any) ([]byte, error) {
 	}
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
+
+// openResponse returns res unchanged unless it carries an encrypted
+// {nonce, ciphertext} envelope — at the top level or as data — which it opens
+// with the request key and merges in. /sdk/* answers are plain JSON today;
+// this keeps the SDK working if an endpoint encrypts its data.
+func openResponse(res map[string]any, env *EnvValues) (map[string]any, error) {
+	sealed := func(v any) (string, string, bool) {
+		m, ok := v.(map[string]any)
+		if !ok || len(m) != 2 {
+			return "", "", false
+		}
+		n, ok1 := m["nonce"].(string)
+		c, ok2 := m["ciphertext"].(string)
+		return n, c, ok1 && ok2
+	}
+	nonceB64, ctB64, top := sealed(res)
+	if !top {
+		var inData bool
+		if nonceB64, ctB64, inData = sealed(res["data"]); !inData {
+			return res, nil
+		}
+	}
+
+	privB64, pubB64, err := keysFrom(env)
+	if err != nil {
+		return nil, err
+	}
+	priv, err := key32(privB64)
+	if err != nil {
+		return nil, err
+	}
+	pub, err := key32(pubB64)
+	if err != nil {
+		return nil, err
+	}
+	key, err := deriveKey(priv, pub)
+	if err != nil {
+		return nil, err
+	}
+	nonce, err := b64Decode(nonceB64)
+	if err != nil {
+		return nil, err
+	}
+	ct, err := b64Decode(ctB64)
+	if err != nil {
+		return nil, err
+	}
+	aead, err := chacha20poly1305.New(key)
+	if err != nil || len(nonce) != chacha20poly1305.NonceSize {
+		return nil, &Error{Kind: KindEncryption, Message: "bad response envelope"}
+	}
+	plain, err := aead.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return nil, &Error{Kind: KindEncryption, Message: "the response is encrypted with a key this SDK cannot open", Err: err}
+	}
+	var opened any
+	if err := json.Unmarshal(plain, &opened); err != nil {
+		return nil, &Error{Kind: KindJSON, Message: err.Error(), Err: err}
+	}
+	if top {
+		if m, ok := opened.(map[string]any); ok {
+			return m, nil
+		}
+		return map[string]any{"data": opened}, nil
+	}
+	out := make(map[string]any, len(res)+4)
+	for k, v := range res {
+		out[k] = v
+	}
+	if m, ok := opened.(map[string]any); ok {
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	out["data"] = opened
+	return out, nil
+}

@@ -89,6 +89,32 @@ catzconnect.SendInput{
 
 ---
 
+## 🌐 Language of the default OTP templates
+
+`SendInput.Language` (optional, top level of the request next to channel and
+template) picks the language of the **built-in** Otp/Verification templates
+for Email, SMS, Voice and WhatsApp: `en`, `de`, `ja`, `ar` or `hi`. A BCP-47
+tag such as `"de-DE"` is accepted and sent as `"de"`; anything else fails
+before the request with a validation `*Error` (`Unsupported 'language' "fr":
+use one of en, de, ja, ar, hi …`). Empty leaves the field out, so the server
+uses English as before. Templates you created in the panel are not affected.
+
+```go
+catzconnect.Send(catzconnect.SendInput{
+	Type: catzconnect.MessageTypeVerification, Channel: catzconnect.ChannelEmail, Template: catzconnect.TemplateOtp,
+	Identity: "noreply@yourdomain.com",
+	Language: "de-DE", // sent as "language": "de"
+	Payload:  catzconnect.SendPayload{To: "user@example.com", Otp: "123456"},
+}, nil)
+
+// A client whose sends default to Japanese when Language is empty.
+client := catzconnect.New(catzconnect.WithDefaultLanguage("ja"))
+```
+
+`NormalizeLanguage("de-DE")` returns `"de"`; `SupportedLanguages` lists the codes.
+
+---
+
 ## 📬 Supported Operations
 
 ### Email Verification OTP
@@ -99,6 +125,7 @@ catzconnect.SendInput{
 	Channel:  "Email",
 	Template: "Otp",
 	Identity: "user@domain.com",
+	Language: "de",              // optional: localized default template (en|de|ja|ar|hi, or "de-DE")
 	Payload: catzconnect.SendPayload{
 		To:  "user@example.com", // required, valid email
 		Otp: "123456",           // required, exactly 6 digits
@@ -198,6 +225,7 @@ catzconnect.Send(catzconnect.SendInput{
 	Channel:  catzconnect.ChannelWhatsApp,
 	Template: catzconnect.TemplateOtp,
 	Identity: "919578456444", // your connected WhatsApp number
+	Language: "hi",           // optional: Meta template language code to use
 	Payload: catzconnect.SendPayload{
 		To:  "+91 98765 43210", // phone number with country code
 		Otp: "123456",
@@ -206,7 +234,9 @@ catzconnect.Send(catzconnect.SendInput{
 ```
 
 `Transactional` / `Custom` takes `To`, `Body`, and an optional `Subject` sent as a
-bold first line. OTPs need an approved Authentication template; custom messages
+bold first line. With `Language` the server asks Meta for the Authentication
+template in that language — it must be approved in that language on your
+WhatsApp Business Account, or Meta rejects the message. OTPs need an approved Authentication template; custom messages
 only reach people who messaged your number in the last 24 hours.
 
 ## Push notifications (end-to-end encrypted)
@@ -309,6 +339,12 @@ if err != nil {
 }
 log.Println(res.MessageID, res.Segments, res.Encoding) // "…", 1, "gsm7"
 
+// The default OTP text in German ("de-DE" is sent as "de").
+_, err = catzconnect.SendSMS(catzconnect.SendInput{
+	Type: catzconnect.MessageTypeVerification, Template: catzconnect.TemplateOtp, Language: "de-DE",
+	Payload: catzconnect.SendPayload{To: "+4915112345678", Otp: "123456"},
+}, nil)
+
 // Free text: Transactional or Promotional + Custom. India needs a DLT id.
 _, err = catzconnect.SendSMS(catzconnect.SendInput{
 	Type:     catzconnect.MessageTypePromotional,
@@ -336,3 +372,104 @@ _, err = catzconnect.SendSMS(catzconnect.SendInput{
 with `Gateway`; numeric `DLTTemplateID`; Custom bodies at most 10 segments
 (1,530 GSM-7 / 670 UCS-2 characters) and a DLT id for +91. `AnalyzeSMS(text)`
 reports the encoding and segments; `NormalizeE164` normalises a number.
+
+## Phone calls (Voice)
+
+`ChannelVoice` (`"Voice"`; `"voice"` is accepted) places a phone call that
+speaks the message. `To` is E.164; `Identity` is ignored.
+
+```go
+// A one-time code, read out digit by digit.
+res, err := catzconnect.SendVoice(catzconnect.SendInput{
+	Channel: catzconnect.ChannelVoice, Type: catzconnect.MessageTypeVerification, Template: catzconnect.TemplateOtp,
+	Payload: catzconnect.SendPayload{
+		To: "+14155550100", Otp: "482913",
+		Data: map[string]string{"language": "en-US", "voice": "female", "repeat": "2"},
+	},
+}, nil)
+fmt.Println(res.MessageID) // voice.* webhook events carry it
+
+// The default OTP script in Japanese; TTS language and voice follow it.
+// Data["language"], when set, still overrides the spoken language.
+_, err = catzconnect.SendVoice(catzconnect.SendInput{
+	Type: catzconnect.MessageTypeVerification, Template: catzconnect.TemplateOtp, Language: "ja",
+	Payload: catzconnect.SendPayload{To: "+819012345678", Otp: "482913"},
+}, nil)
+
+// Free text (≤ 1,000 characters) through one of the key's phone providers.
+_, err = catzconnect.Send(catzconnect.SendInput{
+	Channel: catzconnect.ChannelVoice, Type: catzconnect.MessageTypeNotification, Template: catzconnect.TemplateCustom,
+	Payload: catzconnect.SendPayload{To: "+919876543210", Body: "Your table is ready.", Provider: "Exotel India"},
+}, nil)
+```
+
+Checked before sending: E.164 `To`; `Otp` needs `Otp` (≤ 15 letters/digits);
+`Custom` needs `Body` (1–1,000 characters, no control characters);
+`Data["language"]` like `en-US`, `Data["voice"]` `female`/`male`/a provider
+voice, `Data["repeat"]` `1`–`3`. Any other template name is a Voice template
+from the panel, filled from `Data`.
+
+## Voice & Video calls
+
+Calls between your app's users. Your backend creates the call and a
+short-lived user token; the browser (or app) connects with the token. All
+requests use the same key, encryption and headers as `Send`.
+
+```go
+ctx := context.Background()
+calls := catzconnect.Default.Calls() // .WithEnv(&catzconnect.EnvValues{...}) for explicit keys
+
+call, err := calls.Create(ctx, catzconnect.CreateCallInput{
+	Mode: catzconnect.CallModeVideo, // or CallModeAudio
+	From: "alice",                   // your user ids, ≤ 128 characters
+	To:   []string{"bob"},           // 1–49, unique, not including From
+	// Engine: "auto" | "catz" | "<provider id or label>",
+	// Ring: catzconnect.Bool(true), Metadata: map[string]any{"order": "A-1042"}, MaxParticipants: 4,
+})
+
+tok, err := calls.Token(ctx, "alice", 3600) // 60–86400 s; 0 = server default (3600)
+// send tok.Token and tok.WSURL to alice's browser
+
+detail, err := calls.Get(ctx, call.ID) // participants, DurationSecs, BilledMinutes, EndReason
+_, err = calls.End(ctx, call.ID, "support_closed")
+```
+
+Refusals are `*catzconnect.Error` with `Kind == KindAPI`, `Status`, and
+`Code` (`plan_required`, `minutes_cap_reached`, `engine_unavailable`,
+`too_many_participants`, `provider_not_allowed`):
+
+```go
+var ce *catzconnect.Error
+if errors.As(err, &ce) && ce.Code == "minutes_cap_reached" { /* … */ }
+```
+
+Inputs are checked first, as the server does: mode `audio`/`video`; user
+ids non-empty, ≤ 128 characters, no control characters; `To` 1–49 unique
+ids without `From`; metadata ≤ 4 KB of JSON; TTL 60–86400.
+
+### In the browser
+
+Hand the token (never the API key) to the user's page and use the
+TypeScript SDK's browser entry, `catzconnect/call` (no dependencies; native
+WebRTC):
+
+```ts
+import { CatzCallClient } from "catzconnect/call";
+
+const client = new CatzCallClient({ getToken: () => fetch("/call-token").then((r) => r.text()), url: wsUrl });
+client.on("incoming", ({ callId }) => client.accept(callId));
+client.on("track", ({ pid, stream }) => (videoFor(pid).srcObject = stream));
+client.on("local-stream", ({ stream }) => (selfView.srcObject = stream));
+await client.connect();
+await client.join(callId, { audio: true, video: true });
+```
+
+It keeps the call up by itself: direct path first, relay fallback (UDP →
+TCP → TLS), ICE restart on failure or network change, WebSocket reconnect
+with resume, token renewal through `getToken`. See the TypeScript README for
+every event and method, and a React example.
+
+**Provider hand-off.** When the call runs on a provider engine (Agora,
+Twilio Video, LiveKit, …), the browser client emits `provider` with
+`{ name, room, token, app_id?, url?, extra? }` instead of opening peer
+connections; join with that provider's own SDK.

@@ -1,5 +1,6 @@
 // Package catzconnect is a secure, minimal SDK for sending encrypted
-// communication requests — email, WhatsApp, push and SMS — to the CatzConnect API.
+// communication requests — email, WhatsApp, push, SMS and phone calls — to
+// the CatzConnect API, and for creating Voice & Video calls (see Calls).
 //
 // It is structured like the Rust SDK: validate, build the payload for the
 // channel, encrypt (X25519 + BLAKE2b + ChaCha20-Poly1305), and send with a
@@ -8,12 +9,27 @@ package catzconnect
 
 // CatzConnect is the SDK client.
 type CatzConnect struct {
-	http *httpClient
+	http            *httpClient
+	defaultLanguage string
+}
+
+// Option configures a client made with New.
+type Option func(*CatzConnect)
+
+// WithDefaultLanguage sets the SendInput.Language used when a send leaves it
+// empty (en, de, ja, ar, hi or a BCP-47 tag such as "de-DE"). It is
+// validated on each send, so an unsupported value fails there.
+func WithDefaultLanguage(language string) Option {
+	return func(c *CatzConnect) { c.defaultLanguage = language }
 }
 
 // New returns a new client.
-func New() *CatzConnect {
-	return &CatzConnect{http: newHTTPClient()}
+func New(opts ...Option) *CatzConnect {
+	c := &CatzConnect{http: newHTTPClient()}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 // Default is the package-level client used by Send.
@@ -32,6 +48,17 @@ func Send(input SendInput, env *EnvValues) (map[string]any, error) {
 //
 // Every error is a *Error; see errors.go.
 func (c *CatzConnect) Send(input SendInput, env *EnvValues) (map[string]any, error) {
+	input.Channel = canonicalChannel(input.Channel)
+	if input.Language == "" {
+		input.Language = c.defaultLanguage
+	}
+	if input.Language != "" {
+		lang, err := NormalizeLanguage(input.Language)
+		if err != nil {
+			return nil, err
+		}
+		input.Language = lang
+	}
 	if err := verifyPayload(input); err != nil {
 		return nil, &Error{Kind: KindValidation, Message: err.Error(), Err: err}
 	}
@@ -49,10 +76,28 @@ func (c *CatzConnect) Send(input SendInput, env *EnvValues) (map[string]any, err
 	return c.http.post("/sdk/send", enc, env)
 }
 
-// buildPayload assembles the fields for each supported combination explicitly,
+// buildPayload is the JSON body (before encryption) for a validated input:
+// the channel's fields plus the top-level "language", which is left out when
+// empty so existing sends post exactly what they did before.
+func buildPayload(in SendInput) (map[string]any, error) {
+	p, err := buildChannelPayload(in)
+	if err != nil {
+		return nil, err
+	}
+	if in.Language != "" {
+		lang, err := NormalizeLanguage(in.Language)
+		if err != nil {
+			return nil, err
+		}
+		p["language"] = lang
+	}
+	return p, nil
+}
+
+// buildChannelPayload assembles the fields for each supported combination explicitly,
 // as the Rust SDK's match does — so what each channel sends is visible in one
 // place, and a new channel cannot silently inherit another's fields.
-func buildPayload(in SendInput) (map[string]any, error) {
+func buildChannelPayload(in SendInput) (map[string]any, error) {
 	p := map[string]any{
 		"message_type": string(in.Type),
 		"channel":      string(in.Channel),
@@ -68,6 +113,9 @@ func buildPayload(in SendInput) (map[string]any, error) {
 
 	if in.Channel == ChannelSMS {
 		return buildSMSPayload(in), nil
+	}
+	if in.Channel == ChannelVoice {
+		return buildVoicePayload(in), nil
 	}
 
 	switch {

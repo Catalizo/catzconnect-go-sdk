@@ -22,6 +22,9 @@ const (
 	ChannelWhatsApp Channel = "WhatsApp"
 	ChannelPush     Channel = "Push"
 	ChannelSMS      Channel = "SMS"
+	// ChannelVoice places a phone call that speaks the message
+	// (text-to-speech). "voice" is accepted too.
+	ChannelVoice Channel = "Voice"
 
 	TemplateOtp          Template = "Otp"
 	TemplateCustom       Template = "Custom"
@@ -46,6 +49,14 @@ type SendInput struct {
 	// Identity is the sender identity; ignored by the SMS channel.
 	Identity string      `json:"identity"`
 	Payload  SendPayload `json:"payload"`
+	// Language picks the language of the built-in (default) Otp/Verification
+	// templates: en, de, ja, ar or hi. A BCP-47 tag such as "de-DE" is
+	// accepted and sent as "de". Empty: left out of the request (the
+	// server's default, English), or the client's WithDefaultLanguage.
+	// Panel templates are not affected; Voice data["language"] still
+	// overrides the spoken language; WhatsApp needs the Authentication
+	// template approved in that language.
+	Language string `json:"language,omitempty"`
 }
 
 // SendPayload holds the operation-specific fields. Which fields are
@@ -53,7 +64,7 @@ type SendInput struct {
 type SendPayload struct {
 	// To is an email address (Email), a phone number with country code
 	// (WhatsApp), an FCM token (Push) or an E.164 number such as
-	// +919876543210 (SMS).
+	// +919876543210 (SMS, Voice).
 	To      string `json:"to,omitempty"`
 	Otp     string `json:"otp,omitempty"`
 	Subject string `json:"subject,omitempty"`
@@ -84,6 +95,12 @@ type SendPayload struct {
 	// bodies and the default OTP text. Required for +91 numbers unless the
 	// panel template carries one.
 	DLTTemplateID string `json:"dlt_template_id,omitempty"`
+
+	// Provider (Voice) calls through this phone provider — its id or label —
+	// instead of routing. It must be one of the API key's call providers.
+	// Voice options travel in Data: "language" (e.g. "en-US"), "voice"
+	// ("female", "male" or a provider voice name) and "repeat" ("1"–"3").
+	Provider string `json:"provider,omitempty"`
 }
 
 // EnvValues lets callers pass credentials explicitly instead of reading

@@ -2,6 +2,7 @@ package catzconnect
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,7 +11,7 @@ import (
 	"time"
 )
 
-const userAgent = "catzconnect-go-sdk/1.3.0"
+const userAgent = "catzconnect-go-sdk/1.5.0"
 
 // httpClient posts encrypted payloads to the API.
 type httpClient struct {
@@ -53,6 +54,14 @@ func config(env *EnvValues) (apiKey, baseURL string, err error) {
 }
 
 func (h *httpClient) post(path string, body *encryptedPayload, env *EnvValues) (map[string]any, error) {
+	return h.postCtx(context.Background(), path, body, env)
+}
+
+// postCtx is post with a context, so a caller can cancel or bound the wait.
+func (h *httpClient) postCtx(ctx context.Context, path string, body *encryptedPayload, env *EnvValues) (map[string]any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	apiKey, baseURL, err := config(env)
 	if err != nil {
 		return nil, err
@@ -63,7 +72,7 @@ func (h *httpClient) post(path string, body *encryptedPayload, env *EnvValues) (
 		return nil, &Error{Kind: KindJSON, Message: err.Error(), Err: err}
 	}
 
-	req, err := http.NewRequest(http.MethodPost, baseURL+path, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(payload))
 	if err != nil {
 		return nil, &Error{Kind: KindHTTP, Message: err.Error(), Err: err}
 	}
@@ -84,7 +93,7 @@ func (h *httpClient) post(path string, body *encryptedPayload, env *EnvValues) (
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, &Error{Kind: KindAPI, Status: res.StatusCode, Body: string(respBody)}
+		return nil, apiError(res.StatusCode, respBody)
 	}
 
 	var out map[string]any

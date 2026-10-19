@@ -1,6 +1,9 @@
 package catzconnect
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // ErrorKind classifies an *Error. It mirrors the variants of the Rust SDK's
 // CatzError, so the two SDKs report the same failures the same way.
@@ -31,6 +34,10 @@ type Error struct {
 	// non-2xx status, and Body is what it said.
 	Status int
 	Body   string
+	// Code is the server's machine-readable code for KindAPI, when it sent
+	// one: plan_required, minutes_cap_reached, engine_unavailable,
+	// too_many_participants, provider_not_allowed, …
+	Code string
 	// Err is the underlying cause, when there is one.
 	Err error
 }
@@ -58,6 +65,21 @@ func (e *Error) Error() string {
 }
 
 func (e *Error) Unwrap() error { return e.Err }
+
+// apiError builds a KindAPI error, reading code (and nothing else) from a
+// JSON body; Body keeps the raw text so Error() is unchanged.
+func apiError(status int, body []byte) *Error {
+	e := &Error{Kind: KindAPI, Status: status, Body: string(body)}
+	var j struct {
+		Message string `json:"message"`
+		Code    string `json:"code"`
+	}
+	if json.Unmarshal(body, &j) == nil {
+		e.Code = j.Code
+		e.Message = j.Message
+	}
+	return e
+}
 
 // Is matches on Kind alone, so errors.Is(err, ErrAPI) is true for any API
 // error whatever its status.
