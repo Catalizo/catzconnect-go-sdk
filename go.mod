@@ -1,3 +1,4 @@
+// Deprecated: use github.com/Catalizo/catzconnect-go-sdk/v2 instead.
 module github.com/Catalizo/catzconnect-go-sdk
 
 go 1.21
