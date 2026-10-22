@@ -100,7 +100,7 @@ func TestCallsCreateGetTokenEnd(t *testing.T) {
 		b["max_participants"] != float64(4) || b["ts"] == nil || fmt.Sprint(b["to"]) != "[bob]" {
 		t.Fatalf("create body = %v", b)
 	}
-	if f.auth[0] != "Bearer live_k|application/json|catzconnect-go-sdk/1.5.0" {
+	if f.auth[0] != "Bearer live_k|application/json|catzconnect-go-sdk/2.0.0" {
 		t.Fatalf("headers = %s", f.auth[0])
 	}
 

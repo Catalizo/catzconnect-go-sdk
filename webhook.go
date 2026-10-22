@@ -4,6 +4,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -77,4 +79,47 @@ func VerifyWebhookSignatureAt(rawBody []byte, header, secret string, now time.Ti
 		}
 	}
 	return false
+}
+
+// WebhookEvents lists every event a webhook can subscribe to.
+var WebhookEvents = []string{
+	"email.sent", "email.failed", "email.bounced", "email.opened", "email.clicked", "email.received",
+	"whatsapp.status", "whatsapp.inbound", "whatsapp.read",
+	"push.sent", "push.failed",
+	"sms.sent", "sms.delivered", "sms.failed", "sms.unknown",
+	"call.ringing", "call.started", "call.ended", "call.missed", "call.declined", "call.canceled", "call.failed",
+	"participant.joined", "participant.left",
+	"voice.answered", "voice.completed", "voice.failed", "voice.unknown",
+	"email.complained", "email.unsubscribed", "push.opened", "sms.inbound", "sms.opt_out", "whatsapp.opt_out",
+}
+
+// WebhookEvent is a webhook delivery's body. Test is true for events of
+// test (sandbox) keys.
+type WebhookEvent struct {
+	ID             string         `json:"id"`
+	Type           string         `json:"type"`
+	CreatedAt      string         `json:"created_at"`
+	OrganizationID string         `json:"organization_id"`
+	Test           bool           `json:"test"`
+	Data           map[string]any `json:"data"`
+}
+
+// ParseWebhookEvent verifies the Catz-Signature header and decodes the body.
+func ParseWebhookEvent(rawBody []byte, header, secret string) (*WebhookEvent, error) {
+	return ParseWebhookEventAt(rawBody, header, secret, time.Now(), DefaultWebhookTolerance)
+}
+
+// ParseWebhookEventAt is ParseWebhookEvent with an explicit clock and tolerance.
+func ParseWebhookEventAt(rawBody []byte, header, secret string, now time.Time, tolerance time.Duration) (*WebhookEvent, error) {
+	if !VerifyWebhookSignatureAt(rawBody, header, secret, now, tolerance) {
+		return nil, errors.New("invalid webhook signature")
+	}
+	var ev WebhookEvent
+	if err := json.Unmarshal(rawBody, &ev); err != nil || ev.ID == "" || ev.Type == "" {
+		return nil, errors.New("the webhook body is not a Catz Connect event")
+	}
+	if t, ok := ev.Data["test"].(bool); ok && t {
+		ev.Test = true
+	}
+	return &ev, nil
 }

@@ -1,4 +1,4 @@
-module github.com/Catalizo/catzconnect-go-sdk
+module github.com/Catalizo/catzconnect-go-sdk/v2
 
 go 1.21
 

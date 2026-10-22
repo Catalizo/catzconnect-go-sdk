@@ -38,6 +38,10 @@ type Error struct {
 	// one: plan_required, minutes_cap_reached, engine_unavailable,
 	// too_many_participants, provider_not_allowed, …
 	Code string
+	// Details is the JSON refusal for KindAPI when the body was JSON, with
+	// extra fields such as attempts_remaining (otp_invalid) or retry_after
+	// (otp_resend_cooldown).
+	Details map[string]any
 	// Err is the underlying cause, when there is one.
 	Err error
 }
@@ -77,6 +81,10 @@ func apiError(status int, body []byte) *Error {
 	if json.Unmarshal(body, &j) == nil {
 		e.Code = j.Code
 		e.Message = j.Message
+		var d map[string]any
+		if json.Unmarshal(body, &d) == nil {
+			e.Details = d
+		}
 	}
 	return e
 }

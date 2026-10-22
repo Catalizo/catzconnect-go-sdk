@@ -7,6 +7,11 @@
 // Bearer API key. Stateless; nothing needs initialising.
 package catzconnect
 
+import (
+	"context"
+	"strings"
+)
+
 // CatzConnect is the SDK client.
 type CatzConnect struct {
 	http            *httpClient
@@ -15,6 +20,15 @@ type CatzConnect struct {
 
 // Option configures a client made with New.
 type Option func(*CatzConnect)
+
+// WithAllowInsecureHTTP accepts a plain http:// CATZCONNECT_BASE_URL to a host
+// other than localhost, 127.0.0.1, ::1 or 10.0.2.2 (the same as
+// CATZCONNECT_ALLOW_INSECURE_HTTP=1). Without it such a URL is refused with a
+// KindValidation error before anything is sent: the API key would travel
+// unencrypted.
+func WithAllowInsecureHTTP() Option {
+	return func(c *CatzConnect) { c.http.allowInsecureHTTP = true }
+}
 
 // WithDefaultLanguage sets the SendInput.Language used when a send leaves it
 // empty (en, de, ja, ar, hi or a BCP-47 tag such as "de-DE"). It is
@@ -73,7 +87,11 @@ func (c *CatzConnect) Send(input SendInput, env *EnvValues) (map[string]any, err
 		return nil, err
 	}
 
-	return c.http.post("/sdk/send", enc, env)
+	var headers map[string]string
+	if k, ok := payload["idempotency_key"].(string); ok {
+		headers = map[string]string{"Idempotency-Key": k}
+	}
+	return c.http.postWithHeaders(context.Background(), "/sdk/send", enc, env, headers)
 }
 
 // buildPayload is the JSON body (before encryption) for a validated input:
@@ -90,6 +108,22 @@ func buildPayload(in SendInput) (map[string]any, error) {
 			return nil, err
 		}
 		p["language"] = lang
+	}
+	// Left out when empty, so existing sends post the same body as before.
+	if in.IdempotencyKey != "" {
+		if err := ValidateIdempotencyKey(in.IdempotencyKey); err != nil {
+			return nil, err
+		}
+		p["idempotency_key"] = strings.TrimSpace(in.IdempotencyKey)
+	}
+	if in.Reference != "" {
+		ref, err := ValidateReference(in.Reference)
+		if err != nil {
+			return nil, err
+		}
+		if ref != "" {
+			p["reference"] = ref
+		}
 	}
 	return p, nil
 }
@@ -119,6 +153,18 @@ func buildChannelPayload(in SendInput) (map[string]any, error) {
 	}
 
 	switch {
+	case in.Channel == ChannelWhatsApp && in.Template == TemplateCustom && in.Payload.WhatsApp != nil && in.Payload.WhatsApp.Media != nil:
+		// A media message; body is the caption when media.caption is empty.
+		optional("body", in.Payload.Body)
+		p["whatsapp"] = in.Payload.WhatsApp
+
+	case in.Channel == ChannelWhatsApp && in.Template != TemplateOtp && in.Template != TemplateCustom:
+		// An approved Meta template by name.
+		optional("otp", in.Payload.Otp)
+		if in.Payload.WhatsApp != nil {
+			p["whatsapp"] = in.Payload.WhatsApp
+		}
+
 	case in.Channel == ChannelEmail && in.Type == MessageTypeVerification && in.Template == TemplateOtp,
 		in.Channel == ChannelWhatsApp && in.Type == MessageTypeVerification && in.Template == TemplateOtp:
 		p["otp"] = in.Payload.Otp
@@ -142,6 +188,9 @@ func buildChannelPayload(in SendInput) (map[string]any, error) {
 		if in.Payload.To == "" {
 			delete(p, "to")
 		}
+		if po := in.Payload.Push; po != nil && (po.Broadcast || po.Topic != "" || po.SendAt != "") {
+			p["push"] = po
+		}
 		if len(in.Payload.Data) > 0 {
 			p["data"] = in.Payload.Data
 		}
@@ -159,5 +208,11 @@ func buildChannelPayload(in SendInput) (map[string]any, error) {
 		}
 	}
 
+	if in.Channel == ChannelEmail && in.Payload.Tracking != nil {
+		p["tracking"] = in.Payload.Tracking
+	}
+	if in.Channel == ChannelEmail && in.Payload.Topic != "" {
+		p["topic"] = in.Payload.Topic
+	}
 	return p, nil
 }

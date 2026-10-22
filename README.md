@@ -17,8 +17,14 @@ A secure, minimal SDK for sending encrypted communication requests (e.g., email 
 ## 📦 Installation
 
 ```bash
-go get github.com/Catalizo/catzconnect-go-sdk
+go get github.com/Catalizo/catzconnect-go-sdk/v2@v2.0.0
 ```
+
+> **Upgrading from 1.x:** from 2.0.0 the module path ends in `/v2` (Go's rule
+> for major versions 2 and up). Change the import path to
+> `github.com/Catalizo/catzconnect-go-sdk/v2` (the package is still named
+> `catzconnect`), then run `go get github.com/Catalizo/catzconnect-go-sdk/v2@v2.0.0`
+> and `go mod tidy`. Nothing else in your code has to change.
 
 ---
 
@@ -46,7 +52,7 @@ package main
 import (
 	"log"
 
-	catzconnect "github.com/Catalizo/catzconnect-go-sdk"
+	catzconnect "github.com/Catalizo/catzconnect-go-sdk/v2"
 )
 
 func main() {
@@ -285,6 +291,17 @@ base64 and missing padding are all accepted, as `.env` files and secret managers
 commonly introduce them. The API key and base URL are trimmed, and a trailing
 slash on `CATZCONNECT_BASE_URL` is removed. Requests time out after 30 seconds.
 
+`CATZCONNECT_BASE_URL` must be `https://`. Plain `http://` is accepted only for
+`localhost`, `127.0.0.1`, `[::1]` and `10.0.2.2` (local development); any other
+`http://` URL fails with an `ErrValidation` error before anything is sent, since
+the API key would travel unencrypted. To allow it anyway set
+`CATZCONNECT_ALLOW_INSECURE_HTTP=1` or use
+`catzconnect.New(catzconnect.WithAllowInsecureHTTP())`. `catzconnect.CheckBaseURL`
+applies the same rule.
+
+Printing an `EnvValues` (`%v`, `%+v`, `%#v`, `String()`) never shows the API key
+or the private key.
+
 ## Email templates from the panel
 
 ```go
@@ -473,3 +490,50 @@ every event and method, and a React example.
 Twilio Video, LiveKit, …), the browser client emits `provider` with
 `{ name, room, token, app_id?, url?, extra? }` instead of opening peer
 connections; join with that provider's own SDK.
+
+## Message status, retry-safe sends, test keys, hosted OTP (2.0.0)
+
+```go
+c := catzconnect.New()
+res, err := c.Send(catzconnect.SendInput{Channel: catzconnect.ChannelSMS, Type: catzconnect.MessageTypeTransactional,
+    Template: catzconnect.TemplateCustom, Payload: catzconnect.SendPayload{To: "+919876543210", Body: "Shipped", DLTTemplateID: "1107…"},
+    IdempotencyKey: "ship-42", Reference: "order-42"}, nil)
+
+msg, err := c.Messages().Get(ctx, res["data"].(map[string]any)["message_id"].(string))
+start, err := c.Otp().Start(ctx, catzconnect.OtpStartInput{Channel: catzconnect.ChannelSMS, To: "+919876543210"})
+_, err = c.Otp().Verify(ctx, catzconnect.OtpVerifyInput{VerificationID: start.VerificationID, Code: typed})
+var ce *catzconnect.Error
+if errors.As(err, &ce) && ce.Code == catzconnect.CodeOtpInvalid { /* ce.Details["attempts_remaining"] */ }
+```
+
+WhatsApp approved templates: `Template("order_update")` with `Payload.WhatsApp =
+&catzconnect.WhatsAppOptions{Language: "en_US", Body: []string{"Ravi"}}`; media:
+`TemplateCustom` with `WhatsApp.Media`. Test keys (panel → Test key) are
+validated but never delivered or billed (`data.test`, webhook `Test`).
+Management API: `c.Manage().Call(ctx, "templates", "save", map[string]any{...})`
+with a key that has the management scope. Push devices:
+`c.PushDevices("").Register(ctx, catzconnect.RegisterDeviceInput{...})`.
+
+## Email topics, push broadcasts and topics (2.0.0)
+
+```go
+// Email under a subscription topic: its opt-outs apply.
+c.Send(catzconnect.SendInput{Channel: catzconnect.ChannelEmail, Type: catzconnect.MessageTypeTransactional,
+	Template: catzconnect.TemplateCustom, Identity: "news",
+	Payload: catzconnect.SendPayload{To: "ana@example.com", Subject: "October", Body: "<p>…</p>", Topic: "newsletter"}}, nil)
+
+// Push to a topic, later (server key); data.broadcast_id comes back.
+res, _ := c.Send(catzconnect.SendInput{Channel: catzconnect.ChannelPush, Type: catzconnect.MessageTypeNotification,
+	Template: catzconnect.TemplateNotification, Identity: "my-firebase",
+	Payload: catzconnect.SendPayload{Body: "Today only", Push: &catzconnect.PushOptions{Topic: "deals",
+		SendAt: catzconnect.PushSendAt(time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC))}}}, nil)
+id := res["data"].(map[string]any)["broadcast_id"].(string)
+b, _ := c.Push().Broadcast(ctx, id) // b.Status, b.Queued, b.OverQuota
+c.Push().Subscribe(ctx, catzconnect.PushTopicChange{Identity: "my-firebase", Topic: "deals", ExternalUserID: "u1"})
+c.PushDevices("").SubscribeTopics(ctx, publishableKey, fcmToken, []string{"deals"}) // in the app
+c.Manage().AddSuppressionWith(ctx, catzconnect.SuppressionInput{Channel: "whatsapp", Address: "+919876543210"})
+```
+
+App and test keys are refused for broadcasts / topics (`CodeNotAllowedForAppKeys`,
+`CodeNotAllowedForTestKeys`). `WebhookEvents` includes `email.complained`,
+`email.unsubscribed`, `push.opened`, `sms.inbound`, `sms.opt_out`, `whatsapp.opt_out`.
